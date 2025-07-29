@@ -5,17 +5,29 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>WorkYieldToken V2</title>
   <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
     body { background: #000; color: #fff; font-family: Arial, sans-serif; padding: 2rem; }
-    .container { max-width: 600px; margin: auto; background: #111; padding: 2rem; border-radius: 10px; box-shadow: 0 0 10px #333; }
+    .container { max-width: 800px; margin: auto; background: #111; padding: 2rem; border-radius: 10px; box-shadow: 0 0 10px #333; }
     h1 { color: #fca311; }
     .card { margin-top: 1rem; padding: 1rem; background: #222; border-radius: 8px; }
-    input, button { margin-top: 10px; padding: 10px; border: none; border-radius: 6px; font-size: 1rem; }
+    input, button, select { margin-top: 10px; padding: 10px; border: none; border-radius: 6px; font-size: 1rem; }
     input { width: 100%; }
     button { background: #fca311; color: black; cursor: pointer; }
     .row { display: flex; gap: 10px; }
     .row button { flex: 1; }
     .hidden { display: none; }
+    table { width: 100%; margin-top: 1rem; background: #1a1a1a; border-collapse: collapse; }
+    th, td { padding: 10px; border: 1px solid #333; text-align: left; }
+    th { background: #333; }
+    .toolbar { display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; flex-wrap: wrap; gap: 1rem; }
+    .clickable-row { cursor: pointer; transition: background 0.3s; }
+    .clickable-row:hover { background: #333; }
+    footer { text-align: center; margin-top: 2rem; font-size: 0.9rem; color: #888; }
+    #walletBtn { position: fixed; top: 20px; right: 20px; background: #fca311; color: black; padding: 10px 15px; border-radius: 8px; box-shadow: 0 0 5px #fca311; }
+    footer a { color: #fca311; text-decoration: underline; font-weight: bold; }
+    .pagination { display: flex; justify-content: center; margin-top: 1rem; gap: 10px; }
+    .pagination button { padding: 5px 10px; }
   </style>
 </head>
 <body>
@@ -23,7 +35,6 @@
     <h1>WorkYieldToken V2</h1>
     <p>Real-time on-chain dashboard and admin controls</p>
 
-    <!-- 📊 Stats -->
     <div class="card">
       <p><strong>📦 Available WYT Tokens:</strong> <span id="availableTokens">Loading...</span></p>
       <p><strong>💰 pUSD in Contract:</strong> <span id="paymentBalance">Loading...</span></p>
@@ -31,7 +42,6 @@
       <p><strong>🧾 Redemption Fee:</strong> <span id="redemptionFee">Loading...</span></p>
     </div>
 
-    <!-- 🛒 Buy -->
     <div class="card">
       <h3>Buy WYT</h3>
       <input id="buyAmount" placeholder="Amount (e.g. 1.00)" />
@@ -41,7 +51,6 @@
       </div>
     </div>
 
-    <!-- 💸 Redeem -->
     <div class="card">
       <h3>Redeem WYT</h3>
       <input id="redeemAmount" placeholder="Amount (e.g. 1.00)" />
@@ -51,7 +60,26 @@
       </div>
     </div>
 
-    <!-- 🛠 Admin Panel -->
+    <div class="card">
+      <h3>Minted Work Orders</h3>
+      <div class="toolbar">
+        <label><input type="checkbox" id="filterUnpaid" onchange="renderTable()"> Only Unpaid</label>
+        <input id="searchField" placeholder="Search model or serial" oninput="renderTable()" />
+        <div>
+          <button onclick="exportCSV()">Export CSV</button>
+          <button onclick="generatePDF()">Generate PDF</button>
+        </div>
+      </div>
+      <p><strong>Total Yield Minted:</strong> <span id="totalYield">0</span> | <strong>% Paid:</strong> <span id="percentPaid">0%</span></p>
+      <table>
+        <thead>
+          <tr><th>ID</th><th>Description</th><th>Model</th><th>Serial</th><th>Tonnage</th><th>Yield</th><th>Paid</th><th>Action</th></tr>
+        </thead>
+        <tbody id="workTable"></tbody>
+      </table>
+      <div class="pagination" id="pagination"></div>
+    </div>
+
     <div id="adminPanel" class="hidden">
       <div class="card">
         <h3>🧠 Mint Work Order</h3>
@@ -77,138 +105,14 @@
         <button onclick="cancelWorkOrder()">Cancel</button>
       </div>
     </div>
-
-    <button onclick="connect()">🔌 Connect Wallet</button>
   </div>
 
-  <script>
-    const CONTRACT_ADDRESS = "0x97500Ac1B27931b0a36fe4713B6Af455F5308545";
-    const ABI = [
-      "function availableTokens() view returns (uint256)",
-      "function contractPaymentTokenBalance() view returns (uint256)",
-      "function totalReserveFund() view returns (uint256)",
-      "function redemptionFeePercentage() view returns (uint256)",
-      "function paymentToken() view returns (address)",
-      "function owner() view returns (address)",
-      "function balanceOf(address) view returns (uint256)",
-      "function allowance(address,address) view returns (uint256)",
-      "function approve(address,uint256) returns (bool)",
-      "function buyTokens(uint256) external",
-      "function redeemTokens(uint256) external",
-      "function mintFromWorkOrder(uint256,string) external",
-      "function withdrawFees() external",
-      "function setRedemptionFee(uint256) external",
-      "function cancelWorkOrder(uint256) external"
-    ];
+  <button id="walletBtn" onclick="connect()">🔌 Connect Wallet</button>
 
-    let provider, signer, userAddress, contract, paymentToken;
+  <footer>
+    <a href="https://servicecoin.finance" target="_blank">Powered by Service Coin</a>
+  </footer>
 
-    async function connect() {
-      if (!window.ethereum) return alert("Please install MetaMask!");
-      provider = new ethers.providers.Web3Provider(window.ethereum);
-      await provider.send("eth_requestAccounts", []);
-      signer = provider.getSigner();
-      userAddress = await signer.getAddress();
-      contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
-      const tokenAddress = await contract.paymentToken();
-      paymentToken = new ethers.Contract(tokenAddress, ABI, signer);
-
-      const owner = await contract.owner();
-      if (owner.toLowerCase() === userAddress.toLowerCase()) {
-        document.getElementById("adminPanel").classList.remove("hidden");
-      }
-
-      fetchStats();
-      alert("Wallet connected: " + userAddress);
-    }
-
-    function format(val) {
-      return Number(ethers.utils.formatUnits(val, 18)).toFixed(4);
-    }
-
-    async function fetchStats() {
-      const [available, paymentBalance, reserve, fee] = await Promise.all([
-        contract.availableTokens(),
-        contract.contractPaymentTokenBalance(),
-        contract.totalReserveFund(),
-        contract.redemptionFeePercentage()
-      ]);
-      document.getElementById("availableTokens").innerText = format(available) + " WYT";
-      document.getElementById("paymentBalance").innerText = format(paymentBalance) + " pUSD";
-      document.getElementById("totalReserve").innerText = format(reserve) + " pUSD";
-      document.getElementById("redemptionFee").innerText = fee + " %";
-    }
-
-    async function buyWYT() {
-      const input = document.getElementById("buyAmount").value.trim();
-      if (!input) return alert("Enter amount");
-      const amount = ethers.utils.parseUnits(input, 18);
-      const allowance = await paymentToken.allowance(userAddress, CONTRACT_ADDRESS);
-      if (allowance.lt(amount)) {
-        const approveTx = await paymentToken.approve(CONTRACT_ADDRESS, amount);
-        await approveTx.wait();
-      }
-      const tx = await contract.buyTokens(amount);
-      await tx.wait();
-      alert("✅ WYT Purchased");
-      fetchStats();
-    }
-
-    async function redeemWYT() {
-      const input = document.getElementById("redeemAmount").value.trim();
-      if (!input) return alert("Enter amount");
-      const amount = ethers.utils.parseUnits(input, 18);
-      const tx = await contract.redeemTokens(amount);
-      await tx.wait();
-      alert("✅ Redeemed");
-      fetchStats();
-    }
-
-    async function setBuyMax() {
-      const bal = await paymentToken.balanceOf(userAddress);
-      document.getElementById("buyAmount").value = format(bal);
-    }
-
-    async function setRedeemMax() {
-      const bal = await contract.balanceOf(userAddress);
-      document.getElementById("redeemAmount").value = format(bal);
-    }
-
-    async function mintWorkOrder() {
-      const yieldIn = document.getElementById("mintYield").value.trim();
-      const descIn = document.getElementById("mintDesc").value.trim();
-      if (!yieldIn || !descIn) return alert("Fill both fields");
-      const parsed = ethers.utils.parseUnits(yieldIn, 18);
-      const tx = await contract.mintFromWorkOrder(parsed, descIn);
-      await tx.wait();
-      alert("✅ Work order minted");
-      fetchStats();
-    }
-
-    async function withdrawFees() {
-      const tx = await contract.withdrawFees();
-      await tx.wait();
-      alert("✅ Fees withdrawn");
-      fetchStats();
-    }
-
-    async function setFee() {
-      const feeInput = document.getElementById("newFee").value.trim();
-      if (!feeInput) return alert("Enter new fee %");
-      const tx = await contract.setRedemptionFee(feeInput);
-      await tx.wait();
-      alert("✅ Fee updated");
-      fetchStats();
-    }
-
-    async function cancelWorkOrder() {
-      const id = document.getElementById("cancelId").value.trim();
-      if (!id) return alert("Enter work order ID");
-      const tx = await contract.cancelWorkOrder(id);
-      await tx.wait();
-      alert("✅ Work order canceled");
-      fetchStats();
-    }
-  </script>
+  <script src="./script.js"></script>
 </body>
 </html>
