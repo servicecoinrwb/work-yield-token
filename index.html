@@ -6,56 +6,24 @@
   <title>WorkYieldToken V2</title>
   <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
   <style>
-    body {
-      background: #000;
-      color: #fff;
-      font-family: Arial, sans-serif;
-      padding: 2rem;
-    }
-    .container {
-      max-width: 600px;
-      margin: auto;
-      background: #111;
-      padding: 2rem;
-      border-radius: 10px;
-      box-shadow: 0 0 10px #333;
-    }
+    body { background: #000; color: #fff; font-family: Arial, sans-serif; padding: 2rem; }
+    .container { max-width: 600px; margin: auto; background: #111; padding: 2rem; border-radius: 10px; box-shadow: 0 0 10px #333; }
     h1 { color: #fca311; }
-    .card {
-      margin-top: 1rem;
-      padding: 1rem;
-      background: #222;
-      border-radius: 8px;
-    }
-    input, button {
-      margin-top: 10px;
-      padding: 10px;
-      border: none;
-      border-radius: 6px;
-      font-size: 1rem;
-    }
-    input {
-      width: 100%;
-    }
-    button {
-      background: #fca311;
-      color: black;
-      cursor: pointer;
-    }
-    .row {
-      display: flex;
-      gap: 10px;
-    }
-    .row button {
-      flex: 1;
-    }
+    .card { margin-top: 1rem; padding: 1rem; background: #222; border-radius: 8px; }
+    input, button { margin-top: 10px; padding: 10px; border: none; border-radius: 6px; font-size: 1rem; }
+    input { width: 100%; }
+    button { background: #fca311; color: black; cursor: pointer; }
+    .row { display: flex; gap: 10px; }
+    .row button { flex: 1; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>WorkYieldToken V2</h1>
-    <p>Live token dashboard and interaction tools</p>
+    <p>Real-time on-chain dashboard and admin controls</p>
 
+    <!-- 📊 Stats -->
     <div class="card">
       <p><strong>📦 Available WYT Tokens:</strong> <span id="availableTokens">Loading...</span></p>
       <p><strong>💰 pUSD in Contract:</strong> <span id="paymentBalance">Loading...</span></p>
@@ -63,21 +31,50 @@
       <p><strong>🧾 Redemption Fee:</strong> <span id="redemptionFee">Loading...</span></p>
     </div>
 
+    <!-- 🛒 Buy -->
     <div class="card">
-      <h3>🛒 Buy WYT</h3>
-      <input id="buyAmount" placeholder="Enter amount to buy (e.g. 1.00)" />
+      <h3>Buy WYT</h3>
+      <input id="buyAmount" placeholder="Amount (e.g. 1.00)" />
       <div class="row">
         <button onclick="setBuyMax()">Max</button>
-        <button onclick="buyWYT()">Buy WYT</button>
+        <button onclick="buyWYT()">Buy</button>
       </div>
     </div>
 
+    <!-- 💸 Redeem -->
     <div class="card">
-      <h3>💸 Redeem WYT</h3>
-      <input id="redeemAmount" placeholder="Enter amount to redeem (e.g. 1.00)" />
+      <h3>Redeem WYT</h3>
+      <input id="redeemAmount" placeholder="Amount (e.g. 1.00)" />
       <div class="row">
         <button onclick="setRedeemMax()">Max</button>
-        <button onclick="redeemWYT()">Redeem WYT</button>
+        <button onclick="redeemWYT()">Redeem</button>
+      </div>
+    </div>
+
+    <!-- 🛠 Admin Panel -->
+    <div id="adminPanel" class="hidden">
+      <div class="card">
+        <h3>🧠 Mint Work Order</h3>
+        <input id="mintYield" placeholder="Gross Yield (e.g. 100.00)" />
+        <input id="mintDesc" placeholder="Description (e.g. 'Startup Fund')" />
+        <button onclick="mintWorkOrder()">Mint</button>
+      </div>
+
+      <div class="card">
+        <h3>🏦 Withdraw Fees</h3>
+        <button onclick="withdrawFees()">Withdraw</button>
+      </div>
+
+      <div class="card">
+        <h3>🧾 Set Redemption Fee</h3>
+        <input id="newFee" placeholder="Redemption Fee (e.g. 10)" />
+        <button onclick="setFee()">Update Fee</button>
+      </div>
+
+      <div class="card">
+        <h3>❌ Cancel Work Order</h3>
+        <input id="cancelId" placeholder="Work Order ID to cancel" />
+        <button onclick="cancelWorkOrder()">Cancel</button>
       </div>
     </div>
 
@@ -91,15 +88,17 @@
       "function contractPaymentTokenBalance() view returns (uint256)",
       "function totalReserveFund() view returns (uint256)",
       "function redemptionFeePercentage() view returns (uint256)",
-      "function buyTokens(uint256 amount) external",
-      "function redeemTokens(uint256 amount) external",
       "function paymentToken() view returns (address)",
+      "function owner() view returns (address)",
       "function balanceOf(address) view returns (uint256)",
-    ];
-    const ERC20_ABI = [
-      "function approve(address spender, uint256 amount) external returns (bool)",
-      "function allowance(address owner, address spender) view returns (uint256)",
-      "function balanceOf(address) view returns (uint256)"
+      "function allowance(address,address) view returns (uint256)",
+      "function approve(address,uint256) returns (bool)",
+      "function buyTokens(uint256) external",
+      "function redeemTokens(uint256) external",
+      "function mintFromWorkOrder(uint256,string) external",
+      "function withdrawFees() external",
+      "function setRedemptionFee(uint256) external",
+      "function cancelWorkOrder(uint256) external"
     ];
 
     let provider, signer, userAddress, contract, paymentToken;
@@ -112,7 +111,13 @@
       userAddress = await signer.getAddress();
       contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
       const tokenAddress = await contract.paymentToken();
-      paymentToken = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
+      paymentToken = new ethers.Contract(tokenAddress, ABI, signer);
+
+      const owner = await contract.owner();
+      if (owner.toLowerCase() === userAddress.toLowerCase()) {
+        document.getElementById("adminPanel").classList.remove("hidden");
+      }
+
       fetchStats();
       alert("Wallet connected: " + userAddress);
     }
@@ -135,7 +140,7 @@
     }
 
     async function buyWYT() {
-      const input = document.getElementById("buyAmount").value;
+      const input = document.getElementById("buyAmount").value.trim();
       if (!input) return alert("Enter amount");
       const amount = ethers.utils.parseUnits(input, 18);
       const allowance = await paymentToken.allowance(userAddress, CONTRACT_ADDRESS);
@@ -145,17 +150,17 @@
       }
       const tx = await contract.buyTokens(amount);
       await tx.wait();
-      alert("WYT Purchased!");
+      alert("✅ WYT Purchased");
       fetchStats();
     }
 
     async function redeemWYT() {
-      const input = document.getElementById("redeemAmount").value;
+      const input = document.getElementById("redeemAmount").value.trim();
       if (!input) return alert("Enter amount");
       const amount = ethers.utils.parseUnits(input, 18);
       const tx = await contract.redeemTokens(amount);
       await tx.wait();
-      alert("WYT Redeemed!");
+      alert("✅ Redeemed");
       fetchStats();
     }
 
@@ -167,6 +172,42 @@
     async function setRedeemMax() {
       const bal = await contract.balanceOf(userAddress);
       document.getElementById("redeemAmount").value = format(bal);
+    }
+
+    async function mintWorkOrder() {
+      const yieldIn = document.getElementById("mintYield").value.trim();
+      const descIn = document.getElementById("mintDesc").value.trim();
+      if (!yieldIn || !descIn) return alert("Fill both fields");
+      const parsed = ethers.utils.parseUnits(yieldIn, 18);
+      const tx = await contract.mintFromWorkOrder(parsed, descIn);
+      await tx.wait();
+      alert("✅ Work order minted");
+      fetchStats();
+    }
+
+    async function withdrawFees() {
+      const tx = await contract.withdrawFees();
+      await tx.wait();
+      alert("✅ Fees withdrawn");
+      fetchStats();
+    }
+
+    async function setFee() {
+      const feeInput = document.getElementById("newFee").value.trim();
+      if (!feeInput) return alert("Enter new fee %");
+      const tx = await contract.setRedemptionFee(feeInput);
+      await tx.wait();
+      alert("✅ Fee updated");
+      fetchStats();
+    }
+
+    async function cancelWorkOrder() {
+      const id = document.getElementById("cancelId").value.trim();
+      if (!id) return alert("Enter work order ID");
+      const tx = await contract.cancelWorkOrder(id);
+      await tx.wait();
+      alert("✅ Work order canceled");
+      fetchStats();
     }
   </script>
 </body>
