@@ -3,33 +3,96 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>WorkYieldTokenV2</title>
-  <link rel="stylesheet" href="style.css"/>
+  <title>WorkYieldToken V2 Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body {
+      background: #000;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      padding: 2rem;
+    }
+    .container {
+      max-width: 600px;
+      margin: auto;
+      background: #111;
+      padding: 2rem;
+      border-radius: 10px;
+      box-shadow: 0 0 10px #333;
+    }
+    h1 {
+      color: #fca311;
+    }
+    .card {
+      margin-top: 1rem;
+      padding: 1rem;
+      background: #222;
+      border-radius: 8px;
+    }
+    button {
+      margin-top: 1rem;
+      background: #fca311;
+      color: black;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+  </style>
 </head>
 <body>
   <div class="container">
-    <h1>WorkYieldTokenV2</h1>
-    <p>This smart contract tokenizes future yield from work orders using pUSD as a stablecoin.</p>
+    <h1>WorkYieldToken V2</h1>
+    <p>Real-time on-chain stats from smart contract</p>
 
-    <h2>Overview</h2>
-    <ul>
-      <li>ERC20 Token: <strong>WYT</strong></li>
-      <li>Stablecoin: <strong>pUSD</strong></li>
-      <li>Features: Mint from work orders, redeem with fee, reserve handling</li>
-    </ul>
+    <div class="card">
+      <p><strong>📦 Available WYT Tokens:</strong> <span id="availableTokens">Loading...</span></p>
+      <p><strong>💰 pUSD in Contract:</strong> <span id="paymentBalance">Loading...</span></p>
+      <p><strong>🏦 Total Reserve Fund:</strong> <span id="totalReserve">Loading...</span></p>
+      <p><strong>🧾 Redemption Fee:</strong> <span id="redemptionFee">Loading...</span></p>
+    </div>
 
-    <h2>Key Functions</h2>
-    <ul>
-      <li><code>mintFromWorkOrder()</code></li>
-      <li><code>buyTokens()</code></li>
-      <li><code>redeemTokens()</code></li>
-      <li><code>withdrawFees()</code></li>
-    </ul>
-
-    <h2>Links</h2>
-    <ul>
-      <li><a href="./contracts/WorkYieldTokenV2.sol">Smart Contract Code</a></li>
-    </ul>
+    <button onclick="connect()">🔌 Connect Wallet</button>
   </div>
+
+  <script>
+    const CONTRACT_ADDRESS = "0x97500Ac1B27931b0a36fe4713B6Af455F5308545";
+    const ABI = [
+      "function availableTokens() view returns (uint256)",
+      "function contractPaymentTokenBalance() view returns (uint256)",
+      "function totalReserveFund() view returns (uint256)",
+      "function redemptionFeePercentage() view returns (uint256)",
+    ];
+
+    let provider;
+
+    async function connect() {
+      if (window.ethereum) {
+        provider = new ethers.providers.Web3Provider(window.ethereum);
+        await provider.send("eth_requestAccounts", []);
+        fetchStats();
+      } else {
+        alert("Please install MetaMask!");
+      }
+    }
+
+    async function fetchStats() {
+      const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, provider);
+      const [available, paymentBalance, reserve, fee] = await Promise.all([
+        contract.availableTokens(),
+        contract.contractPaymentTokenBalance(),
+        contract.totalReserveFund(),
+        contract.redemptionFeePercentage()
+      ]);
+
+      const format = (val) => ethers.utils.formatUnits(val, 18);
+
+      document.getElementById("availableTokens").innerText = format(available) + " WYT";
+      document.getElementById("paymentBalance").innerText = format(paymentBalance) + " pUSD";
+      document.getElementById("totalReserve").innerText = format(reserve) + " pUSD";
+      document.getElementById("redemptionFee").innerText = fee + " %";
+    }
+  </script>
 </body>
 </html>
