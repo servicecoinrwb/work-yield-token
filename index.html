@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>WorkYieldToken V2 Dashboard</title>
+  <title>WorkYieldToken V2</title>
   <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
   <style>
     body {
@@ -20,9 +20,7 @@
       border-radius: 10px;
       box-shadow: 0 0 10px #333;
     }
-    h1 {
-      color: #fca311;
-    }
+    h1 { color: #fca311; }
     .card {
       margin-top: 1rem;
       padding: 1rem;
@@ -44,6 +42,13 @@
       color: black;
       cursor: pointer;
     }
+    .row {
+      display: flex;
+      gap: 10px;
+    }
+    .row button {
+      flex: 1;
+    }
   </style>
 </head>
 <body>
@@ -60,14 +65,20 @@
 
     <div class="card">
       <h3>🛒 Buy WYT</h3>
-      <input id="buyAmount" placeholder="Enter amount to buy (in WYT)" />
-      <button onclick="buyWYT()">Buy WYT</button>
+      <input id="buyAmount" placeholder="Enter amount to buy (e.g. 1.00)" />
+      <div class="row">
+        <button onclick="setBuyMax()">Max</button>
+        <button onclick="buyWYT()">Buy WYT</button>
+      </div>
     </div>
 
     <div class="card">
       <h3>💸 Redeem WYT</h3>
-      <input id="redeemAmount" placeholder="Enter amount to redeem (in WYT)" />
-      <button onclick="redeemWYT()">Redeem WYT</button>
+      <input id="redeemAmount" placeholder="Enter amount to redeem (e.g. 1.00)" />
+      <div class="row">
+        <button onclick="setRedeemMax()">Max</button>
+        <button onclick="redeemWYT()">Redeem WYT</button>
+      </div>
     </div>
 
     <button onclick="connect()">🔌 Connect Wallet</button>
@@ -83,30 +94,31 @@
       "function buyTokens(uint256 amount) external",
       "function redeemTokens(uint256 amount) external",
       "function paymentToken() view returns (address)",
+      "function balanceOf(address) view returns (uint256)",
     ];
     const ERC20_ABI = [
       "function approve(address spender, uint256 amount) external returns (bool)",
       "function allowance(address owner, address spender) view returns (uint256)",
+      "function balanceOf(address) view returns (uint256)"
     ];
 
     let provider, signer, userAddress, contract, paymentToken;
 
     async function connect() {
-      if (window.ethereum) {
-        provider = new ethers.providers.Web3Provider(window.ethereum);
-        await provider.send("eth_requestAccounts", []);
-        signer = provider.getSigner();
-        userAddress = await signer.getAddress();
-        contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+      if (!window.ethereum) return alert("Please install MetaMask!");
+      provider = new ethers.providers.Web3Provider(window.ethereum);
+      await provider.send("eth_requestAccounts", []);
+      signer = provider.getSigner();
+      userAddress = await signer.getAddress();
+      contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+      const tokenAddress = await contract.paymentToken();
+      paymentToken = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
+      fetchStats();
+      alert("Wallet connected: " + userAddress);
+    }
 
-        const tokenAddress = await contract.paymentToken();
-        paymentToken = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
-
-        fetchStats();
-        alert("Wallet connected: " + userAddress);
-      } else {
-        alert("Please install MetaMask!");
-      }
+    function format(val) {
+      return Number(ethers.utils.formatUnits(val, 18)).toFixed(4);
     }
 
     async function fetchStats() {
@@ -116,9 +128,6 @@
         contract.totalReserveFund(),
         contract.redemptionFeePercentage()
       ]);
-
-      const format = (val) => ethers.utils.formatUnits(val, 18);
-
       document.getElementById("availableTokens").innerText = format(available) + " WYT";
       document.getElementById("paymentBalance").innerText = format(paymentBalance) + " pUSD";
       document.getElementById("totalReserve").innerText = format(reserve) + " pUSD";
@@ -126,17 +135,14 @@
     }
 
     async function buyWYT() {
-      const amountIn = document.getElementById("buyAmount").value;
-      if (!amountIn) return alert("Enter amount");
-
-      const amount = ethers.utils.parseUnits(amountIn, 18);
-
+      const input = document.getElementById("buyAmount").value;
+      if (!input) return alert("Enter amount");
+      const amount = ethers.utils.parseUnits(input, 18);
       const allowance = await paymentToken.allowance(userAddress, CONTRACT_ADDRESS);
       if (allowance.lt(amount)) {
         const approveTx = await paymentToken.approve(CONTRACT_ADDRESS, amount);
         await approveTx.wait();
       }
-
       const tx = await contract.buyTokens(amount);
       await tx.wait();
       alert("WYT Purchased!");
@@ -144,14 +150,23 @@
     }
 
     async function redeemWYT() {
-      const amountIn = document.getElementById("redeemAmount").value;
-      if (!amountIn) return alert("Enter amount");
-
-      const amount = ethers.utils.parseUnits(amountIn, 18);
+      const input = document.getElementById("redeemAmount").value;
+      if (!input) return alert("Enter amount");
+      const amount = ethers.utils.parseUnits(input, 18);
       const tx = await contract.redeemTokens(amount);
       await tx.wait();
       alert("WYT Redeemed!");
       fetchStats();
+    }
+
+    async function setBuyMax() {
+      const bal = await paymentToken.balanceOf(userAddress);
+      document.getElementById("buyAmount").value = format(bal);
+    }
+
+    async function setRedeemMax() {
+      const bal = await contract.balanceOf(userAddress);
+      document.getElementById("redeemAmount").value = format(bal);
     }
   </script>
 </body>
